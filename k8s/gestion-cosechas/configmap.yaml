@@ -1,0 +1,13 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: gestion-cosechas-config
+  namespace: agro
+  labels:
+    app.kubernetes.io/name: gestion-cosechas
+    app.kubernetes.io/part-of: agro-monitoring
+data:
+  # DNS interno del Service de catalogo-cultivos
+  CATALOGO_CULTIVOS_URL: "http://catalogo-cultivos.agro.svc.cluster.local:8081"
+  # Debe ser un entero (ms). Un valor no numerico impide que Spring Boot arranque.
+  CATALOGO_CULTIVOS_TIMEOUT_MS: "2000"

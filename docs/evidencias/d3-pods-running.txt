@@ -1,0 +1,18 @@
+# $ kubectl get pods -A   (2026-10-24 22:36)
+NAMESPACE     NAME                                                     READY   STATUS    RESTARTS        AGE
+agro          catalogo-cultivos-bf96cd79d-88mdz                        1/1     Running   0               21m
+agro          gestion-cosechas-7cb7f99756-4knsd                        1/1     Running   0               21m
+kube-system   coredns-674b8bbfcf-c79vv                                 1/1     Running   1 (28m ago)     142m
+kube-system   etcd-minikube                                            1/1     Running   1 (28m ago)     142m
+kube-system   kube-apiserver-minikube                                  1/1     Running   1 (28m ago)     142m
+kube-system   kube-controller-manager-minikube                         1/1     Running   1 (28m ago)     142m
+kube-system   kube-proxy-27hst                                         1/1     Running   1 (28m ago)     142m
+kube-system   kube-scheduler-minikube                                  1/1     Running   1 (28m ago)     142m
+kube-system   metrics-server-56fd589fbd-5fhzr                          1/1     Running   6 (9m58s ago)   142m
+kube-system   storage-provisioner                                      1/1     Running   13 (10m ago)    142m
+monitoring    alertmanager-monitoring-kube-prometheus-alertmanager-0   2/2     Running   2 (28m ago)     140m
+monitoring    monitoring-grafana-868cb5cc94-l8vfr                      3/3     Running   4 (23m ago)     141m
+monitoring    monitoring-kube-prometheus-operator-5f8f87cf88-mvttx     1/1     Running   6 (9m58s ago)   141m
+monitoring    monitoring-kube-state-metrics-77bbf99c5c-s4qv6           1/1     Running   3 (28m ago)     141m
+monitoring    monitoring-prometheus-node-exporter-9j2rn                1/1     Running   6 (28m ago)     141m
+monitoring    prometheus-monitoring-kube-prometheus-prometheus-0       2/2     Running   4 (28m ago)     140m

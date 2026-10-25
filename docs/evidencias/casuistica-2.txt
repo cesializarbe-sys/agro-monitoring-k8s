@@ -1,0 +1,75 @@
+### 2026-10-24 23:26:10 - ANTES (sano)
+$ kubectl -n agro get pods
+NAME                                READY   STATUS    RESTARTS      AGE
+catalogo-cultivos-bf96cd79d-88mdz   1/1     Running   1 (38m ago)   71m
+gestion-cosechas-bb76f8698-sqdds    1/1     Running   0             4m8s
+$ up{namespace="agro"} (Prometheus)
+   catalogo-cultivos = 1
+   gestion-cosechas = 1
+$ alertas agro (Prometheus /api/v1/alerts)
+   (ninguna)
+
+### ACTIVACION 23:26:10
+$ kubectl -n agro set env deployment/catalogo-cultivos RESPONSE_DELAY_MS=3000
+deployment.apps/catalogo-cultivos env updated
+Waiting for deployment "catalogo-cultivos" rollout to finish: 1 old replicas are pending termination...
+Waiting for deployment "catalogo-cultivos" rollout to finish: 1 old replicas are pending termination...
+deployment "catalogo-cultivos" successfully rolled out
+NAME                                 READY   STATUS        RESTARTS      AGE
+catalogo-cultivos-6dc8ddcbb9-j5cjr   1/1     Running       0             25s
+catalogo-cultivos-bf96cd79d-88mdz    1/1     Terminating   1 (38m ago)   71m
+gestion-cosechas-bb76f8698-sqdds     1/1     Running       0             4m34s
+### 2026-10-24 23:28:27 - SINTOMA (23:28)
+$ kubectl -n agro get pods
+NAME                                 READY   STATUS    RESTARTS   AGE
+catalogo-cultivos-6dc8ddcbb9-j5cjr   1/1     Running   0          2m17s
+gestion-cosechas-bb76f8698-sqdds     1/1     Running   0          6m26s
+$ up{namespace="agro"} (Prometheus)
+   gestion-cosechas = 1
+   catalogo-cultivos = 1
+$ alertas agro (Prometheus /api/v1/alerts)
+   FIRING CosechaSinRegistrarEnAcopio - Mas de 5 t de cosecha sin registrar en 5 min (motivo: catalogo_no_disponible)
+   FIRING CatalogoCultivosLento - Latencia p95 de catalogo-cultivos > 1s
+   FIRING TimeoutsHaciaCatalogo - gestion-cosechas no logra consultar catalogo-cultivos
+
+### METRICAS
+  p95 de catalogo-cultivos (s)
+      {'job': 'catalogo-cultivos'} 3.2
+  errores/s de B hacia A
+      {} 4.06
+  kg rechazados en 5 min
+      {'motivo': 'catalogo_no_disponible'} 18935095.76
+### DIAGNOSTICO
+$ kubectl -n agro get pods   (todo Running y Ready: las probes NO detectan el problema)
+NAME                                 READY   STATUS    RESTARTS   AGE
+catalogo-cultivos-6dc8ddcbb9-j5cjr   1/1     Running   0          2m18s
+gestion-cosechas-bb76f8698-sqdds     1/1     Running   0          6m27s
+$ kubectl -n agro exec deploy/catalogo-cultivos -- printenv RESPONSE_DELAY_MS
+3000
+$ kubectl -n agro logs deploy/gestion-cosechas --tail=3 | grep ERROR
+2026-10-25T04:28:30.007Z ERROR 1 --- [gestion-cosechas] [o-8082-exec-134] c.c.g.client.CatalogoCultivosClient      : No se pudo obtener el cultivo id=1 desde catalogo-cultivos dentro de 2000 ms. Causa: reactor.core.Exceptions$ReactiveException: java.util.concu
+$ curl -s -o /dev/null -w "%{time_total}s" http://localhost:30081/api/cultivos/1
+3.279438s
+### RESOLUCION 23:33:43
+$ kubectl -n agro set env deployment/catalogo-cultivos RESPONSE_DELAY_MS=0
+deployment.apps/catalogo-cultivos env updated
+Waiting for deployment "catalogo-cultivos" rollout to finish: 1 old replicas are pending termination...
+Waiting for deployment "catalogo-cultivos" rollout to finish: 1 old replicas are pending termination...
+deployment "catalogo-cultivos" successfully rolled out
+$ curl -s -o /dev/null -w "%{time_total}s" http://localhost:30081/api/cultivos/1
+0.005436s
+NAME                                 READY   STATUS        RESTARTS   AGE
+catalogo-cultivos-6dc8ddcbb9-j5cjr   1/1     Terminating   0          7m52s
+catalogo-cultivos-bf96cd79d-f7fz4    1/1     Running       0          18s
+gestion-cosechas-bb76f8698-sqdds     1/1     Running       0          12m
+### 2026-10-24 23:39:05 - casuistica 2 resuelta
+$ kubectl -n agro get pods
+NAME                                READY   STATUS    RESTARTS   AGE
+catalogo-cultivos-bf96cd79d-f7fz4   1/1     Running   0          5m23s
+gestion-cosechas-bb76f8698-sqdds    1/1     Running   0          17m
+$ up{namespace="agro"} (Prometheus)
+   gestion-cosechas = 1
+   catalogo-cultivos = 1
+$ alertas agro (Prometheus /api/v1/alerts)
+   (ninguna)
+

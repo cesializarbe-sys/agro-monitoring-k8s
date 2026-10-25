@@ -1,0 +1,19 @@
+# Resultados reales de las consultas PromQL de la Parte B (2026-10-24 23:48)
+
+## B1 requests/min de gestion-cosechas (5m)
+sum(rate(http_server_requests_seconds_count{namespace="agro", job="gestion-cosechas", uri=~"/api/.*"}[5m])) * 60
+   {} => 154.785
+
+## B2 p95 de POST /api/cosechas (5m)
+histogram_quantile(0.95, sum by (le) (rate(http_server_requests_seconds_bucket{namespace="agro", job="gestion-cosechas", method="POST", uri="/api/cosechas"}[5m])))
+   {} => 0.008
+
+## B3 estado UP/DOWN
+up{namespace="agro", job=~"catalogo-cultivos|gestion-cosechas"}
+   {'job': 'gestion-cosechas'} => 1.0
+   {'job': 'catalogo-cultivos'} => 1.0
+
+## B4 kg rechazados en la ultima hora por motivo (incluye las casuisticas 2 y 3)
+sum by (motivo) (increase(gestioncosechas_kg_rechazados_total{namespace="agro"}[1h]))
+   {'motivo': 'catalogo_no_disponible'} => 74682635.84
+   {'motivo': 'cultivo_inexistente'} => 40770649.945

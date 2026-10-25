@@ -1,0 +1,128 @@
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: agro-monitoring-alertas
+  namespace: agro
+  labels:
+    app.kubernetes.io/part-of: agro-monitoring
+spec:
+  groups:
+    # -----------------------------------------------------------------------
+    # Disponibilidad (una alerta por servicio caido)
+    # -----------------------------------------------------------------------
+    - name: agro.disponibilidad
+      rules:
+        # Cuando el pod esta en CrashLoopBackOff sale de los Endpoints y el
+        # target desaparece (no queda up==0). "or vector(0)" cubre ambos casos.
+        - alert: CatalogoCultivosCaido
+          expr: (sum(up{namespace="agro", job="catalogo-cultivos"}) or vector(0)) == 0
+          for: 1m
+          labels:
+            severity: critical
+            sistema: agro
+            servicio: catalogo-cultivos
+          annotations:
+            summary: "catalogo-cultivos no tiene instancias UP"
+            description: "Prometheus no logra scrapear ninguna instancia de catalogo-cultivos desde hace 1 minuto. Sin catalogo no se pueden validar ni registrar cosechas."
+
+        - alert: GestionCosechasCaido
+          expr: (sum(up{namespace="agro", job="gestion-cosechas"}) or vector(0)) == 0
+          for: 1m
+          labels:
+            severity: critical
+            sistema: agro
+            servicio: gestion-cosechas
+          annotations:
+            summary: "gestion-cosechas no tiene instancias UP"
+            description: "Prometheus no logra scrapear ninguna instancia de gestion-cosechas desde hace 1 minuto. Los productores no pueden registrar su cosecha."
+
+        - alert: PodAgroEnCrashLoop
+          # Entre reintentos el contenedor pasa por Running/Error, por eso se mira
+          # la ventana de 2m y no solo el valor instantaneo.
+          expr: max by (namespace, pod, container) (max_over_time(kube_pod_container_status_waiting_reason{namespace="agro", reason="CrashLoopBackOff"}[2m])) == 1
+          for: 1m
+          labels:
+            severity: critical
+            sistema: agro
+          annotations:
+            summary: "{{ $labels.container }} esta en CrashLoopBackOff"
+            description: "El pod {{ $labels.pod }} se reinicia continuamente. Revisar 'kubectl -n agro logs {{ $labels.pod }} --previous' (suele ser configuracion invalida)."
+
+    # -----------------------------------------------------------------------
+    # Rendimiento / comunicacion entre servicios
+    # -----------------------------------------------------------------------
+    - name: agro.rendimiento
+      rules:
+        - alert: CatalogoCultivosLento
+          expr: |
+            histogram_quantile(0.95,
+              sum by (le) (rate(http_server_requests_seconds_bucket{namespace="agro", job="catalogo-cultivos", uri=~"/api/.*"}[1m]))
+            ) > 1
+          for: 1m
+          labels:
+            severity: warning
+            sistema: agro
+            servicio: catalogo-cultivos
+          annotations:
+            summary: "Latencia p95 de catalogo-cultivos > 1s"
+            description: "El p95 de las respuestas de /api/cultivos es {{ $value | humanizeDuration }}. gestion-cosechas tiene un timeout de 2s: riesgo de cosechas rechazadas."
+
+        - alert: TimeoutsHaciaCatalogo
+          expr: sum(rate(gestioncosechas_catalogo_errores_total{namespace="agro"}[2m])) > 0.05
+          for: 1m
+          labels:
+            severity: warning
+            sistema: agro
+            servicio: gestion-cosechas
+          annotations:
+            summary: "gestion-cosechas no logra consultar catalogo-cultivos"
+            description: "{{ $value | humanize }} errores/s (timeout o conexion) al consultar el catalogo."
+
+    # -----------------------------------------------------------------------
+    # Negocio agro
+    # -----------------------------------------------------------------------
+    - name: agro.negocio
+      rules:
+        # Cosecha que llega al acopio y no queda registrada = no se paga al
+        # productor ni se factura. Se mide en kg para que el umbral tenga
+        # sentido de negocio (5 toneladas en 5 minutos).
+        - alert: CosechaSinRegistrarEnAcopio
+          expr: sum by (motivo) (increase(gestioncosechas_kg_rechazados_total{namespace="agro"}[5m])) > 5000
+          for: 1m
+          labels:
+            severity: critical
+            sistema: agro
+            area: negocio
+          annotations:
+            summary: "Mas de 5 t de cosecha sin registrar en 5 min (motivo: {{ $labels.motivo }})"
+            description: "{{ $value | humanize }} kg de cosecha fueron rechazados en los ultimos 5 minutos por '{{ $labels.motivo }}'."
+
+        # Si mas de la mitad de las cosechas no alcanza el rendimiento esperado
+        # puede ser una helada/plaga real o un dato maestro mal cargado.
+        - alert: RendimientoBajoGeneralizado
+          expr: |
+            (
+              sum(increase(gestioncosechas_cosechas_por_estado_total{namespace="agro", estado="POR_DEBAJO"}[10m]))
+              /
+              sum(increase(gestioncosechas_cosechas_por_estado_total{namespace="agro"}[10m]))
+            ) > 0.5
+            and
+            sum(increase(gestioncosechas_cosechas_por_estado_total{namespace="agro"}[10m])) > 10
+          for: 2m
+          labels:
+            severity: warning
+            sistema: agro
+            area: negocio
+          annotations:
+            summary: "Mas del 50% de las cosechas por debajo del rendimiento esperado"
+            description: "{{ $value | humanizePercentage }} de las cosechas de los ultimos 10 min quedaron POR_DEBAJO del rendimiento esperado (kg/ha)."
+
+        - alert: CultivoEliminadoDelCatalogo
+          expr: delta(catalogocultivos_cultivos_registrados_actual{namespace="agro"}[10m]) < 0
+          labels:
+            severity: warning
+            sistema: agro
+            area: negocio
+          annotations:
+            summary: "Se eliminaron cultivos del catalogo maestro"
+            description: "El catalogo tiene {{ $value }} cultivos menos que hace 10 minutos. Las cosechas de ese cultivo seran rechazadas."

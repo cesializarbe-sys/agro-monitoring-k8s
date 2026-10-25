@@ -1,0 +1,65 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: gestion-cosechas
+  namespace: agro
+  labels:
+    app.kubernetes.io/name: gestion-cosechas
+    app.kubernetes.io/part-of: agro-monitoring
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: gestion-cosechas
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: gestion-cosechas
+        app.kubernetes.io/part-of: agro-monitoring
+    spec:
+      containers:
+        - name: gestion-cosechas
+          image: agro/gestion-cosechas:1.0.0
+          # La imagen se construye dentro del daemon Docker de Minikube
+          # (minikube docker-env); "Never" evita que intente bajarla de un registry.
+          imagePullPolicy: Never
+          ports:
+            - name: http
+              containerPort: 8082
+          # CATALOGO_CULTIVOS_URL y CATALOGO_CULTIVOS_TIMEOUT_MS vienen del ConfigMap
+          envFrom:
+            - configMapRef:
+                name: gestion-cosechas-config
+          env:
+            - name: JAVA_TOOL_OPTIONS
+              value: "-XX:MaxRAMPercentage=75 -XX:ActiveProcessorCount=2"
+          resources:
+            requests:
+              cpu: 250m
+              memory: 256Mi
+            limits:
+              cpu: "1"
+              memory: 512Mi
+          startupProbe:
+            httpGet:
+              path: /health/liveness
+              port: http
+            periodSeconds: 5
+            timeoutSeconds: 2
+            failureThreshold: 24
+          livenessProbe:
+            httpGet:
+              path: /health/liveness
+              port: http
+            periodSeconds: 10
+            timeoutSeconds: 2
+            failureThreshold: 3
+          # La readiness NO depende de catalogo-cultivos: si A cae, B sigue
+          # sirviendo listados y responde 503 controlado al registrar.
+          readinessProbe:
+            httpGet:
+              path: /health/readiness
+              port: http
+            periodSeconds: 5
+            timeoutSeconds: 2
+            failureThreshold: 3

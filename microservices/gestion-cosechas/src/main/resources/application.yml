@@ -1,0 +1,35 @@
+server:
+  port: 8082
+
+spring:
+  application:
+    name: gestion-cosechas
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health, prometheus
+      base-path: /
+      path-mapping:
+        prometheus: metrics
+  endpoint:
+    health:
+      show-details: always
+      probes:
+        enabled: true
+  metrics:
+    tags:
+      application: gestion-cosechas
+    distribution:
+      percentiles-histogram:
+        http.server.requests: true
+
+logging:
+  level:
+    com.cesia.gestioncosechas: INFO
+
+app:
+  catalogo-cultivos:
+    base-url: ${CATALOGO_CULTIVOS_URL:http://localhost:8081}
+    timeout-ms: ${CATALOGO_CULTIVOS_TIMEOUT_MS:2000}

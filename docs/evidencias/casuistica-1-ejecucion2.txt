@@ -1,0 +1,58 @@
+### 2026-10-24 23:08:38 - ANTES (sano)
+$ kubectl -n agro get pods
+NAME                                READY   STATUS    RESTARTS      AGE
+catalogo-cultivos-bf96cd79d-88mdz   1/1     Running   1 (21m ago)   53m
+gestion-cosechas-7cb7f99756-4knsd   1/1     Running   1 (21m ago)   53m
+$ up{namespace="agro"} (Prometheus)
+   gestion-cosechas = 1
+   catalogo-cultivos = 1
+$ alertas agro (Prometheus /api/v1/alerts)
+   (ninguna)
+
+### ACTIVACION 23:09:46
+$ kubectl -n agro patch configmap gestion-cosechas-config --type merge -p '{"data":{"CATALOGO_CULTIVOS_TIMEOUT_MS":"dos-mil"}}'
+configmap/gestion-cosechas-config patched
+$ kubectl -n agro delete pod -l app.kubernetes.io/name=gestion-cosechas
+pod "gestion-cosechas-7cb7f99756-4knsd" deleted
+### 2026-10-24 23:11:43 - SINTOMA (alertas FIRING)
+$ kubectl -n agro get pods
+NAME                                READY   STATUS             RESTARTS      AGE
+catalogo-cultivos-bf96cd79d-88mdz   1/1     Running            1 (24m ago)   56m
+gestion-cosechas-7cb7f99756-cb64c   0/1     CrashLoopBackOff   3 (37s ago)   117s
+$ up{namespace="agro"} (Prometheus)
+   catalogo-cultivos = 1
+   gestion-cosechas = 0
+$ alertas agro (Prometheus /api/v1/alerts)
+   FIRING GestionCosechasCaido - gestion-cosechas no tiene instancias UP
+   FIRING PodAgroEnCrashLoop - gestion-cosechas esta en CrashLoopBackOff
+
+### DIAGNOSTICO
+$ kubectl -n agro logs -l app.kubernetes.io/name=gestion-cosechas --previous | grep "Failed to convert"
+Failed to convert value of type 'java.lang.String' to required type 'int'; For input string: "dos-mil"
+$ kubectl -n agro get configmap gestion-cosechas-config -o jsonpath={.data}
+{"CATALOGO_CULTIVOS_TIMEOUT_MS":"dos-mil","CATALOGO_CULTIVOS_URL":"http://catalogo-cultivos.agro.svc.cluster.local:8081"}
+### RESOLUCION 23:22:01
+$ kubectl -n agro patch configmap gestion-cosechas-config --type merge -p '{"data":{"CATALOGO_CULTIVOS_TIMEOUT_MS":"2000"}}'
+configmap/gestion-cosechas-config patched
+$ kubectl -n agro rollout restart deployment/gestion-cosechas
+deployment.apps/gestion-cosechas restarted
+Waiting for deployment "gestion-cosechas" rollout to finish: 1 old replicas are pending termination...
+Waiting for deployment "gestion-cosechas" rollout to finish: 1 old replicas are pending termination...
+Waiting for deployment "gestion-cosechas" rollout to finish: 1 old replicas are pending termination...
+deployment "gestion-cosechas" successfully rolled out
+$ kubectl -n agro get pods
+NAME                                READY   STATUS        RESTARTS      AGE
+catalogo-cultivos-bf96cd79d-88mdz   1/1     Running       1 (34m ago)   67m
+gestion-cosechas-7cb7f99756-cb64c   0/1     Terminating   7             12m
+gestion-cosechas-bb76f8698-sqdds    1/1     Running       0             18s
+### 2026-10-24 23:24:44 - casuistica 1 resuelta
+$ kubectl -n agro get pods
+NAME                                READY   STATUS    RESTARTS      AGE
+catalogo-cultivos-bf96cd79d-88mdz   1/1     Running   1 (37m ago)   69m
+gestion-cosechas-bb76f8698-sqdds    1/1     Running   0             2m42s
+$ up{namespace="agro"} (Prometheus)
+   catalogo-cultivos = 1
+   gestion-cosechas = 1
+$ alertas agro (Prometheus /api/v1/alerts)
+   (ninguna)
+

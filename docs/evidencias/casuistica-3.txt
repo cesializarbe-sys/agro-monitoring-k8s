@@ -1,0 +1,62 @@
+### 2026-10-24 23:40:27 - ANTES (sano)
+$ kubectl -n agro get pods
+NAME                                READY   STATUS    RESTARTS   AGE
+catalogo-cultivos-bf96cd79d-f7fz4   1/1     Running   0          6m45s
+gestion-cosechas-bb76f8698-sqdds    1/1     Running   0          18m
+$ up{namespace="agro"} (Prometheus)
+   gestion-cosechas = 1
+   catalogo-cultivos = 1
+$ alertas agro (Prometheus /api/v1/alerts)
+   (ninguna)
+
+$ curl -s http://localhost:30081/api/cultivos/3
+{"id":3,"nombre":"Palta Hass","tipo":"Frutal","temporada":"Todo el año","rendimientoEsperadoKgHa":12000.0,"precioMercadoKg":4.2}
+### ACTIVACION 23:40:28
+$ curl -s -X DELETE -o /dev/null -w "HTTP %{http_code}\n" http://localhost:30081/api/cultivos/3
+HTTP 204
+$ curl -s http://localhost:30081/api/cultivos | cultivos restantes
+   1 Papa Huayro
+   2 Maiz Amarillo Duro
+### 2026-10-24 23:42:13 - SINTOMA (23:42)
+$ kubectl -n agro get pods
+NAME                                READY   STATUS    RESTARTS   AGE
+catalogo-cultivos-bf96cd79d-f7fz4   1/1     Running   0          8m30s
+gestion-cosechas-bb76f8698-sqdds    1/1     Running   0          20m
+$ up{namespace="agro"} (Prometheus)
+   gestion-cosechas = 1
+   catalogo-cultivos = 1
+$ alertas agro (Prometheus /api/v1/alerts)
+   FIRING CosechaSinRegistrarEnAcopio - Mas de 5 t de cosecha sin registrar en 5 min (motivo: cultivo_inexistente)
+   FIRING CultivoEliminadoDelCatalogo - Se eliminaron cultivos del catalogo maestro
+
+### METRICAS
+  kg rechazados en 5 min por motivo
+      {'motivo': 'catalogo_no_disponible'} 0.0
+      {'motivo': 'cultivo_inexistente'} 10649252.2
+  cultivos en catalogo (gauge)
+      {} 2.0
+  errores B->A (deben ser 0: A responde, solo que el cultivo no existe)
+      {} 0.0
+### DIAGNOSTICO
+$ kubectl -n agro get pods   (todo Running y Ready: ni probes ni targets detectan el problema)
+NAME                                READY   STATUS    RESTARTS   AGE
+catalogo-cultivos-bf96cd79d-f7fz4   1/1     Running   0          8m31s
+gestion-cosechas-bb76f8698-sqdds    1/1     Running   0          20m
+$ curl -s -w " HTTP %{http_code}\n" -X POST http://localhost:30082/api/cosechas -H "Content-Type: application/json" -d {cultivoId:3,...}
+{"cultivoId":3,"error":"El cultivo id=3 no existe en catalogo-cultivos"} HTTP 404
+$ kubectl -n agro logs deploy/gestion-cosechas | grep "no existe"
+2026-10-25T04:42:16.494Z  WARN 1 --- [gestion-cosechas] [io-8082-exec-42] c.c.g.client.CatalogoCultivosClient      : El cultivo id=3 no existe en catalogo-cultivos
+### RESOLUCION 23:46:50
+$ kubectl -n agro rollout restart deployment/catalogo-cultivos
+deployment.apps/catalogo-cultivos restarted
+Waiting for deployment "catalogo-cultivos" rollout to finish: 1 old replicas are pending termination...
+Waiting for deployment "catalogo-cultivos" rollout to finish: 1 old replicas are pending termination...
+deployment "catalogo-cultivos" successfully rolled out
+$ curl -s http://localhost:30081/api/cultivos/3
+{"id":3,"nombre":"Palta Hass","tipo":"Frutal","temporada":"Todo el año","rendimientoEsperadoKgHa":12000.0,"precioMercadoKg":4.2}
+$ POST /api/cosechas (cultivoId=3, 2 ha, 24000 kg)
+{"id":2468,"cultivoId":3,"nombreCultivo":"Palta Hass","hectareasCosechadas":2.0,"cantidadKg":24000.0,"fecha":"2026-10-25","estadoRendimiento":"CUMPLIO","ingresoEstimado":100800.0} HTTP 201
+NAME                                READY   STATUS        RESTARTS   AGE
+catalogo-cultivos-75b7b6d4f-4lf68   1/1     Running       0          16s
+catalogo-cultivos-bf96cd79d-f7fz4   1/1     Terminating   0          13m
+gestion-cosechas-bb76f8698-sqdds    1/1     Running       0          25m

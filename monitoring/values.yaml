@@ -1,0 +1,81 @@
+# values.yaml propio para el chart prometheus-community/kube-prometheus-stack
+# Instalación:
+#   helm upgrade --install monitoring prometheus-community/kube-prometheus-stack \
+#     -n monitoring --create-namespace -f monitoring/values.yaml
+
+# ---------------------------------------------------------------------------
+# Grafana
+# ---------------------------------------------------------------------------
+grafana:
+  adminUser: admin
+  adminPassword: "AgroMonitoring2026!"
+  defaultDashboardsTimezone: America/Lima
+  service:
+    type: NodePort
+    nodePort: 30300
+  # El sidecar carga como dashboard cualquier ConfigMap con el label
+  # grafana_dashboard=1 de CUALQUIER namespace (asi versionamos el nuestro en el repo).
+  sidecar:
+    dashboards:
+      enabled: true
+      label: grafana_dashboard
+      labelValue: "1"
+      searchNamespace: ALL
+  resources:
+    requests: { cpu: 100m, memory: 256Mi }
+    limits:   { cpu: 500m, memory: 512Mi }
+
+# ---------------------------------------------------------------------------
+# Prometheus
+# ---------------------------------------------------------------------------
+prometheus:
+  service:
+    type: NodePort
+    nodePort: 30900
+  prometheusSpec:
+    scrapeInterval: 15s
+    evaluationInterval: 15s
+    retention: 3d
+
+    # Por defecto el operador solo toma ServiceMonitors/Rules que tengan el label
+    # release=<nombre-del-release>. Con "NilUsesHelmValues: false" y selectores
+    # vacios ({}), Prometheus descubre TODOS los ServiceMonitors / PodMonitors /
+    # PrometheusRules de TODOS los namespaces.
+    serviceMonitorSelectorNilUsesHelmValues: false
+    serviceMonitorSelector: {}
+    serviceMonitorNamespaceSelector: {}
+
+    podMonitorSelectorNilUsesHelmValues: false
+    podMonitorSelector: {}
+    podMonitorNamespaceSelector: {}
+
+    ruleSelectorNilUsesHelmValues: false
+    ruleSelector: {}
+    ruleNamespaceSelector: {}
+
+    resources:
+      requests: { cpu: 200m, memory: 512Mi }
+      limits:   { cpu: "1",  memory: 1536Mi }
+
+# ---------------------------------------------------------------------------
+# Alertmanager (para ver alertas FIRING / agrupadas)
+# ---------------------------------------------------------------------------
+alertmanager:
+  service:
+    type: NodePort
+    nodePort: 30903
+  alertmanagerSpec:
+    resources:
+      requests: { cpu: 50m,  memory: 64Mi }
+      limits:   { cpu: 200m, memory: 256Mi }
+
+# En Minikube estos componentes del control-plane no exponen metricas hacia
+# fuera del nodo; desactivarlos evita targets DOWN que solo meten ruido.
+kubeEtcd:
+  enabled: false
+kubeControllerManager:
+  enabled: false
+kubeScheduler:
+  enabled: false
+kubeProxy:
+  enabled: false

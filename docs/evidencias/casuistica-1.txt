@@ -1,0 +1,62 @@
+### 2026-10-24 20:42:19 - ANTES (estado sano)
+$ kubectl -n agro get pods
+NAME                                 READY   STATUS    RESTARTS   AGE
+catalogo-cultivos-5b8787d4d9-mr5bs   1/1     Running   0          11m
+gestion-cosechas-7f56cc565c-9ck4m    1/1     Running   0          95s
+$ up{namespace="agro"} (Prometheus)
+   catalogo-cultivos = 1
+   gestion-cosechas = 1
+$ alertas agro (Prometheus /api/v1/alerts)
+   PENDING TimeoutsHaciaCatalogo - gestion-cosechas no logra consultar catalogo-cultivos
+
+### ACTIVACION
+$ kubectl -n agro patch configmap gestion-cosechas-config --type merge -p '{"data":{"CATALOGO_CULTIVOS_TIMEOUT_MS":"dos-mil"}}'
+configmap/gestion-cosechas-config patched
+$ kubectl -n agro get pods   # el pod sigue sano: el ConfigMap no se re-lee en caliente
+NAME                                 READY   STATUS    RESTARTS   AGE
+catalogo-cultivos-5b8787d4d9-mr5bs   1/1     Running   0          11m
+gestion-cosechas-7f56cc565c-9ck4m    1/1     Running   0          97s
+$ kubectl -n agro delete pod -l app.kubernetes.io/name=gestion-cosechas   # simula reinicio (nodo, OOM, escalado...)
+pod "gestion-cosechas-7f56cc565c-9ck4m" deleted
+
+### 2026-10-24 20:52:58 - SINTOMA (~10 min despues)
+$ kubectl -n agro get pods
+NAME                                 READY   STATUS    RESTARTS        AGE
+catalogo-cultivos-5b8787d4d9-mr5bs   1/1     Running   0               22m
+gestion-cosechas-7f56cc565c-ngm4f    0/1     Running   6 (3m18s ago)   10m
+$ up{namespace="agro"} (Prometheus)
+   catalogo-cultivos = 1
+   gestion-cosechas = 0
+$ alertas agro (Prometheus /api/v1/alerts)
+   FIRING GestionCosechasCaido - gestion-cosechas no tiene instancias UP
+   FIRING PodAgroEnCrashLoop - gestion-cosechas esta en CrashLoopBackOff
+
+### DIAGNOSTICO
+$ kubectl -n agro describe pod -l app.kubernetes.io/name=gestion-cosechas  (extracto)
+    State:          Running
+    Last State:     Terminated
+      Reason:       Error
+      Exit Code:    143
+    Restart Count:  6
+  Warning  BackOff    5m21s (x12 over 9m5s)  kubelet            Back-off restarting failed container gestion-cosechas in pod gestion-cosechas-7f56cc565c-ngm4f_agro(ac7923c4-1e47-4b5e-9375-ba866a2176ad)
+$ kubectl -n agro logs deploy/gestion-cosechas --previous | grep -iE "exception|caused|failed" (extracto)
+2026-10-25T01:49:40.699Z  WARN 1 --- [gestion-cosechas] [           main] ConfigServletWebServerApplicationContext : Exception encountered during context initialization - cancelling refresh attempt: org.springframework.beans.factory.UnsatisfiedDependencyException: Error creating bean with name 'cosechaController' defined in URL [jar:nested:/app/app.jar/!BOOT-INF/classes/!/com/cesia/gestioncosechas/controller/CosechaController.class]: Unsatisfied dependency expressed through constructor parameter 0: Error creating bean with name 'catalogoCultivosClient' defined in URL [jar:nested:/app/app.jar/!BOOT-INF/classes/!/com/cesia/gestioncosechas/client/CatalogoCultivosClient.class]: Unsatisfied dependency expressed through constructor parameter 0: Error creating bean with name 'webClientConfig': Unsatisfied dependency expressed through field 'timeoutMs': Failed to convert value of type 'java.lang.String' to required type 'int'; For input string: "dos-mil"
+$ kubectl -n agro get configmap gestion-cosechas-config -o jsonpath={.data}
+{"CATALOGO_CULTIVOS_TIMEOUT_MS":"dos-mil","CATALOGO_CULTIVOS_URL":"http://catalogo-cultivos.agro.svc.cluster.local:8081"}
+$ alertas en Alertmanager (http://localhost:30903/api/v2/alerts)
+   active PodAgroEnCrashLoop critical
+   active GestionCosechasCaido critical
+
+### RESOLUCION
+$ kubectl -n agro patch configmap gestion-cosechas-config --type merge -p '{"data":{"CATALOGO_CULTIVOS_TIMEOUT_MS":"2000"}}'
+configmap/gestion-cosechas-config patched
+$ kubectl -n agro rollout restart deployment/gestion-cosechas && kubectl -n agro rollout status deployment/gestion-cosechas
+deployment.apps/gestion-cosechas restarted
+Waiting for deployment spec update to be observed...
+Waiting for deployment spec update to be observed...
+Waiting for deployment "gestion-cosechas" rollout to finish: 0 out of 1 new replicas have been updated...
+Waiting for deployment "gestion-cosechas" rollout to finish: 1 old replicas are pending termination...
+Waiting for deployment "gestion-cosechas" rollout to finish: 1 old replicas are pending termination...
+Waiting for deployment "gestion-cosechas" rollout to finish: 1 old replicas are pending termination...
+deployment "gestion-cosechas" successfully rolled out
+

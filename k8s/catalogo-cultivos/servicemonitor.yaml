@@ -1,0 +1,21 @@
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: catalogo-cultivos
+  namespace: agro
+  labels:
+    app.kubernetes.io/name: catalogo-cultivos
+    app.kubernetes.io/part-of: agro-monitoring
+spec:
+  # Debe coincidir con los labels del Service catalogo-cultivos
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: catalogo-cultivos
+  namespaceSelector:
+    matchNames:
+      - agro
+  endpoints:
+    - port: http          # nombre del puerto en el Service
+      path: /metrics
+      interval: 15s
+      scrapeTimeout: 10s
