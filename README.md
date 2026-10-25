@@ -1,5 +1,7 @@
 # Agro Monitoring — Kubernetes con Prometheus & Grafana
 
+> **Entrega del curso Kubernetes con Prometheus & Grafana (Valle Grande).** Informe técnico: [docs/informe.md](docs/informe.md)
+
 Dos microservicios Spring Boot del dominio agrícola desplegados en Minikube y observados
 con `kube-prometheus-stack` (Prometheus, Alertmanager, Grafana).
 
