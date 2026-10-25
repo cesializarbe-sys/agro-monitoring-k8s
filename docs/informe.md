@@ -323,14 +323,19 @@ kubectl -n agro rollout restart deployment/gestion-cosechas
 
 El pod nuevo quedó `1/1 Running` en unos 18 segundos y las alertas se apagaron en ~2 minutos.
 
-**Lección.** Kubernetes no valida el contenido de un ConfigMap ni reinicia los pods cuando
-cambia, así que un error de configuración puede quedarse dormido y explotar horas después, en el
-siguiente reinicio, a otra persona. Aprendí que para un CrashLoopBackOff el comando clave es
-`kubectl logs --previous`, porque el log útil es el del contenedor que murió. También que una
-alerta de "servicio caído" no puede basarse solo en `up == 0`: cuando el pod no está Ready sale
-de los Endpoints y su target simplemente desaparece, por eso mi regla usa
-`(sum(up{...}) or vector(0)) == 0`. Para prevenirlo: versionar la configuración en Git y
-validarla al arrancar la aplicación para fallar con un mensaje claro.
+**Lección.** Lo que más me sorprendió es que el error no apareció cuando edité el ConfigMap,
+sino mucho después, cuando el pod se reinició. Kubernetes no revisa lo que escribes en un
+ConfigMap ni reinicia los pods cuando cambia, así que un valor mal puesto queda dormido hasta
+el siguiente reinicio, y ahí cae el servicio. De esta casuística me llevo tres cosas:
+
+1. Cuando un pod está en CrashLoopBackOff, el comando que da la respuesta es
+   `kubectl logs --previous`, porque muestra el log del contenedor que murió. En mi caso decía
+   `For input string: "dos-mil"`.
+2. Una alerta de "servicio caído" no puede depender solo de `up == 0`. Un pod que no está Ready
+   sale de los Endpoints y su métrica desaparece en vez de valer 0. Por eso mi regla usa
+   `(sum(up{...}) or vector(0)) == 0`.
+3. Para evitarlo, la configuración debería estar en Git y validarse al arrancar la aplicación,
+   para que falle enseguida y con un mensaje claro.
 
 ---
 
@@ -380,13 +385,18 @@ kubectl -n agro set env deployment/catalogo-cultivos RESPONSE_DELAY_MS=0
 
 La respuesta del catálogo bajó de 3.28 s a 5 ms.
 
-**Lección.** La latencia también es disponibilidad: un servicio que responde, pero más lento
-que el timeout de su cliente, está caído para ese cliente. Vi cómo una dependencia lenta se
-propaga hacia arriba y hace que B pierda el 100% de sus registros sin tener ningún defecto.
-Por eso conviene mirar el p95 y no el promedio. También comprobé que las probes no sirven para
-detectar lentitud (de hecho, hacer que la readiness de B dependiera de A habría empeorado el
-incidente), y que esto se detecta con métricas y alertas. Para mitigarlo: caché de los cultivos
-en B, un circuit breaker para fallar rápido y timeouts coherentes a lo largo de la cadena.
+**Lección.** En esta casuística ningún servicio estaba caído y, aun así, B no podía registrar
+ni una sola cosecha. Entendí que la lentitud también es una forma de caída: si A tarda 3
+segundos y B solo espera 2, para B es como si A no existiera. B no tenía ningún defecto, el
+problema de A se le contagió. Lo que me llevo:
+
+1. Hay que mirar el **p95** y no solo el promedio, y desconfiar cuando una latencia se queda
+   plana en un número redondo. El p95 de B se pegó en ≈ 2 s, que era justo su propio timeout.
+2. Las **probes no detectan esto**: revisan `/health`, no `/api`, y por eso los pods seguían
+   Running y Ready. Si además hubiera hecho que la readiness de B dependiera de A, habría sacado
+   a B del Service y empeorado el incidente. La lentitud se detecta con métricas y alertas.
+3. Para mejorarlo pondría una caché de cultivos en B (cambian muy poco) y un circuit breaker
+   para fallar rápido en vez de esperar 2 s en cada request.
 
 ---
 
@@ -441,14 +451,20 @@ No bastaba con crear la palta de nuevo: el catálogo guarda sus datos en memoria
 asignado el id 4, mientras las cosechas siguen apuntando al id 3. Tras el reinicio, el
 `POST /api/cosechas` con `cultivoId=3` devolvió HTTP 201.
 
-**Lección.** "Todo en verde" no significa "todo bien". Un sistema puede estar técnicamente sano
-y perdiendo dinero, y solo las métricas de negocio (kg sin registrar, cultivos disponibles) lo
-revelan. Por eso las alertas de negocio se expresan en unidades del negocio (toneladas sin
-registrar en 5 minutos), no en tasas de error, y por eso etiqueté las métricas por causa
-(`motivo`): convierten "algo falla" en "falla por esto". También aprendí que los datos maestros
-son críticos y no deberían poder borrarse sin posibilidad de deshacer (borrado lógico, permisos
-y auditoría), y que guardar el catálogo en memoria es frágil: con una base de datos y backups,
-la restauración conservaría los ids.
+**Lección.** Esta es la casuística que más me hizo pensar, porque en Grafana todo estaba en
+verde (servicios UP, sin reinicios nuevos, latencia normal) y aun así se rechazaban todas las
+cosechas de palta. Aprendí que "sano" no es lo mismo que "funcionando para el negocio": solo las
+métricas de negocio (kg sin registrar, cultivos en el catálogo) mostraron el problema. Lo que me
+llevo:
+
+1. Las alertas de negocio deben hablar en unidades del negocio (toneladas sin registrar en
+   5 minutos) y no en tasas de error, porque eso es lo que entiende quien recibe la alerta.
+2. Etiquetar las métricas por causa (`motivo`) me permitió distinguir en pocos minutos un cultivo
+   borrado (`cultivo_inexistente`) de un catálogo caído (`catalogo_no_disponible`).
+3. Los datos maestros no deberían poder borrarse sin poder deshacerlo (borrado lógico, permisos).
+4. Mi catálogo en memoria es frágil: volver a crear la palta le habría dado el id 4 y las
+   cosechas habrían seguido fallando con el id 3. Tuve que reiniciar el pod para recuperar el
+   id original. Con una base de datos y backups, la restauración conservaría los ids.
 
 ---
 
